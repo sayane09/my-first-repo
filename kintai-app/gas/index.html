@@ -1,0 +1,787 @@
+<!doctype html>
+<html lang="ja"><head><base target="_top">
+<meta charset="utf-8">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>勤怠管理アプリ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Layout: iPad kiosk. Big clock band on top, tab bar, then one working panel per tab. */
+:root {
+  --bg: #eef1f4;
+  --panel: #ffffff;
+  --ink: #17222e;
+  --muted: #5d6b79;
+  --line: #d5dce3;
+  --accent: #1f5f8b;
+  --in: #1b7a4f;      --in-soft: #e2f3ea;
+  --brk: #a8650a;     --brk-soft: #fbefd9;
+  --out: #b23a2e;     --out-soft: #f9e3e0;
+  --stamp: #c8352b;
+  --font-body: "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  --font-num: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #11171d; --panel: #1a222b; --ink: #e6ecf1; --muted: #9aa8b5; --line: #2c3743; --accent: #6fb0dd;
+  --in: #5cc995; --in-soft: #183327; --brk: #e9ab4d; --brk-soft: #352812; --out: #f08070; --out-soft: #3a1d1a; --stamp: #f07a6e;
+  color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #11171d; --panel: #1a222b; --ink: #e6ecf1; --muted: #9aa8b5; --line: #2c3743; --accent: #6fb0dd;
+  --in: #5cc995; --in-soft: #183327; --brk: #e9ab4d; --brk-soft: #352812; --out: #f08070; --out-soft: #3a1d1a; --stamp: #f07a6e;
+  color-scheme: dark }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { font-size: 16px; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 16px; line-height: 1.6; }
+.wrap { max-width: 1100px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 16px 48px; display: grid; gap: 16px; }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+header.clock { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 8px 24px; }
+.clock .appname { font-weight: 700; font-size: 15px; color: var(--accent); letter-spacing: .05em; }
+.clock .date { color: var(--muted); font-size: 18px; }
+.clock .time { font-family: var(--font-num); font-weight: 700; font-size: clamp(44px, 9vw, 76px); line-height: 1; letter-spacing: -0.02em; }
+.clock .rule { color: var(--muted); font-size: 14px; text-align: right; }
+.clock .rule b { color: var(--ink); }
+
+nav.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+nav.tabs button { background: none; border: 0; padding: 10px 16px; font-weight: 500; color: var(--muted); border-bottom: 3px solid transparent; white-space: nowrap; }
+nav.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+
+.note { font-size: 14px; color: var(--muted); }
+.example-banner { background: var(--brk-soft); color: var(--ink); border-radius: 8px; padding: 10px 14px; font-size: 14px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; }
+
+/* Clock-in grid */
+.staff-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.staff-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; text-align: left; display: grid; gap: 6px; min-height: 108px; border-left: 6px solid var(--line); }
+.staff-card .name { font-size: 20px; font-weight: 700; }
+.staff-card .since { font-size: 14px; color: var(--muted); }
+.staff-card[data-st="work"] { border-left-color: var(--in); }
+.staff-card[data-st="break"] { border-left-color: var(--brk); }
+.pill { display: inline-block; font-size: 13px; font-weight: 700; padding: 2px 10px; border-radius: 999px; width: fit-content; }
+.pill.off { background: var(--bg); color: var(--muted); }
+.pill.work { background: var(--in-soft); color: var(--in); }
+.pill.break { background: var(--brk-soft); color: var(--brk); }
+.pill.edit { background: var(--out-soft); color: var(--out); font-size: 12px; padding: 0 8px; margin-left: 6px; vertical-align: middle; }
+td.wr { white-space: normal; min-width: 180px; }
+
+/* Action sheet */
+.sheet-back { position: fixed; inset: 0; background: rgb(0 0 0 / 0.45); display: grid; place-items: center; padding: 16px; z-index: 20; }
+.sheet { background: var(--panel); border-radius: 16px; width: min(520px, 100%); max-height: 90vh; overflow: auto; padding: 24px; display: grid; gap: 16px; }
+.sheet h2 { margin: 0; font-size: 24px; }
+.sheet .now { font-family: var(--font-num); font-size: 18px; color: var(--muted); }
+.acts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.act { border: 0; border-radius: 12px; padding: 20px 8px; font-size: 22px; font-weight: 700; }
+.act.in { background: var(--in); color: #fff; }
+.act.out { background: var(--out); color: #fff; }
+.act.bs, .act.be { background: var(--brk); color: #fff; }
+.act:disabled { opacity: 0.25; cursor: not-allowed; }
+.btn { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 8px 14px; font-weight: 500; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.danger { color: var(--out); border-color: var(--out); }
+.btn.danger.armed { background: var(--out); color: #fff; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+/* Toast with "stamp" */
+.toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); border-radius: 12px; padding: 14px 20px; font-size: 18px; z-index: 30; display: flex; gap: 14px; align-items: center; max-width: calc(100% - 32px); }
+.stamp { font-family: var(--font-num); font-weight: 700; color: var(--stamp); background: var(--panel); border: 2px solid var(--stamp); border-radius: 6px; padding: 0 8px; transform: rotate(-4deg); white-space: nowrap; }
+
+/* Tables */
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
+.panel h3 { margin: 0; font-size: 18px; }
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font-size: 13px; color: var(--muted); font-weight: 500; letter-spacing: 0.04em; }
+td.r, th.r { text-align: right; }
+tr.click { cursor: pointer; }
+tr.click:hover td { background: var(--bg); }
+tr.sel td { background: var(--in-soft); }
+.raw { color: var(--muted); font-size: 13px; }
+.warn { color: var(--out); font-weight: 700; }
+textarea { width: 100%; min-height: 160px; font-family: var(--font-num); font-size: 13px; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+label.field { display: grid; gap: 4px; font-size: 14px; color: var(--muted); }
+label.field select, label.field input { font-size: 16px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.help ol, .help ul { margin: 0; padding-left: 1.4em; display: grid; gap: 4px; }
+.help p { margin: 0; }
+.edit-break { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+@media (prefers-reduced-motion: no-preference) { .toast { animation: pop .18s ease-out; } @keyframes pop { from { transform: translate(-50%, 8px); opacity: 0; } } }
+</style>
+</head><body>
+
+<div class="wrap">
+  <header class="clock">
+    <div>
+      <div class="appname">勤怠管理アプリ</div>
+      <div class="date" id="today"></div>
+      <div class="time" id="now">--:--:--</div>
+    </div>
+    <div class="rule" id="ruleSummary"></div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="punch" aria-selected="true">打刻</button>
+    <button role="tab" data-tab="month" aria-selected="false">月次集計</button>
+    <button role="tab" data-tab="staff" aria-selected="false">スタッフ</button>
+    <button role="tab" data-tab="settings" aria-selected="false">設定</button>
+    <button role="tab" data-tab="help" aria-selected="false">使い方</button>
+  </nav>
+
+  <section id="tab-punch" class="tabpanel" style="display:grid;gap:12px">
+    <div class="row" style="justify-content:space-between">
+      <p class="note" style="margin:0">自分の名前を押して、出勤・休憩・退勤を記録します。</p>
+      <label class="note row" style="gap:6px">この端末の店舗
+        <select id="deviceStore" style="font-size:15px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)"></select>
+      </label>
+    </div>
+    <p class="warn" id="connMsg" hidden style="margin:0"></p>
+    <div class="staff-grid" id="staffGrid"></div>
+  </section>
+
+  <section id="tab-month" class="tabpanel" hidden style="display:grid;gap:16px">
+    <div class="row">
+      <button class="btn" id="prevM" aria-label="前の月">◀</button>
+      <strong id="monthLabel" class="num" style="font-size:20px"></strong>
+      <button class="btn" id="nextM" aria-label="次の月">▶</button>
+    </div>
+    <div class="panel">
+      <h3>スタッフ別の合計</h3>
+      <div class="tbl-wrap"><table id="sumTable"></table></div>
+      <p class="note" style="margin:0">行を押すと日ごとの明細を表示し、打刻の修正や追加ができます。</p>
+    </div>
+    <div class="panel" id="detailPanel" hidden></div>
+    <div class="panel">
+      <h3>CSV出力（給与計算・TKC用）</h3>
+      <div class="row">
+        <button class="btn primary" id="dlDetail">明細CSVを保存</button>
+        <button class="btn" id="dlSum">合計CSVを保存</button>
+        <button class="btn" id="cpDetail">明細CSVをコピー</button>
+      </div>
+      <p class="note" style="margin:0">「保存」でファイルになります。保存できない画面では「コピー」してExcelやメモに貼り付けてください。</p>
+      <textarea id="csvOut" readonly hidden aria-label="CSVの内容"></textarea>
+    </div>
+    <div class="panel">
+      <h3>修正履歴</h3>
+      <p class="note" style="margin:0">打刻をあとから直したり、手で追加・削除したりすると、ここに「いつ・誰が・どう直したか」が残ります。履歴は消せません。</p>
+      <div class="tbl-wrap"><table id="logTable"></table></div>
+      <div class="row"><button class="btn" id="dlLog">修正履歴CSVを保存</button></div>
+    </div>
+  </section>
+
+  <section id="tab-staff" class="tabpanel" hidden style="display:grid;gap:16px">
+    <div class="panel">
+      <h3>スタッフを追加</h3>
+      <form id="addStaff" class="row">
+        <input id="newName" placeholder="例：山本 太郎" required style="flex:1;min-width:180px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel)">
+        <input id="newStore" placeholder="店舗（複数は「、」区切り）" style="width:240px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel)">
+        <button class="btn primary" type="submit">追加</button>
+      </form>
+    </div>
+    <div class="panel">
+      <h3>スタッフ一覧</h3>
+      <div class="tbl-wrap"><table id="staffTable"></table></div>
+    </div>
+  </section>
+
+  <section id="tab-settings" class="tabpanel" hidden style="display:grid;gap:16px">
+    <div class="panel">
+      <h3>時間の計算ルール</h3>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th></th><th>そろえ方</th><th>例</th></tr></thead>
+        <tbody>
+          <tr><td>出勤</td><td>15分単位で切り上げ</td><td class="num">9:03に押す → 9:15から計算</td></tr>
+          <tr><td>退勤</td><td>15分単位で切り捨て</td><td class="num">18:10に押す → 18:00まで計算</td></tr>
+          <tr><td>休憩</td><td>15分単位（近い方）</td><td class="num">52分休憩 → 45分として計算</td></tr>
+        </tbody></table></div>
+      <p class="note" style="margin:0">ルールは固定です。打刻した実際の時刻はそのまま保存し、集計のときにそろえます。</p>
+      <p class="note" style="margin:0">労働基準法では、日々の勤務時間を労働者に不利な方向へ丸めることは原則として認められていません。本番運用の前に社労士さんへルールをご確認ください。</p>
+    </div>
+    <div class="panel">
+      <h3>店長の暗証番号</h3>
+      <p class="note" style="margin:0">番号を決めると、記録の修正・追加・削除、スタッフ登録、この設定画面を開くときに番号が必要になります。打刻は今までどおり名前を押すだけです。空欄で保存すると番号なしに戻ります。</p>
+      <form id="pinForm" class="row">
+        <input id="pinNew" type="password" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="4〜8桁の数字" style="width:180px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel)">
+        <button class="btn primary" type="submit">保存</button>
+        <span class="note" id="pinState"></span>
+      </form>
+    </div>
+    <div class="panel">
+      <h3>データ</h3>
+      <p class="note" style="margin:0">記録はGoogleスプレッドシートに保存され、どのiPadから打刻しても同じ記録にまとまります。スプレッドシートを開けば、パソコンやスマホからも確認できます。</p>
+    </div>
+  </section>
+
+  <section id="tab-help" class="tabpanel help" hidden style="display:grid;gap:16px">
+    <div class="panel">
+      <h3>はじめの準備（最初に1回だけ）</h3>
+      <ol>
+        <li>お店のiPadでこのページを開き、Safariなら共有ボタン（□に↑）から<b>「ホーム画面に追加」</b>を押すと、次からはアイコンで開けます。</li>
+        <li><b>「打刻」</b>タブ右上の「この端末の店舗」で、そのiPadを置くお店を選びます。そのお店のスタッフさんだけが並びます。</li>
+        <li><b>「スタッフ」</b>タブで名前と店舗を登録します。複数のお店で働く人は「日乃屋カレー、ドーナツ」のように「、」で区切ります。</li>
+      </ol>
+    </div>
+    <div class="panel">
+      <h3>毎日の打刻</h3>
+      <ol>
+        <li>「打刻」タブで<b>自分の名前</b>を押します。</li>
+        <li>来たら<b>出勤</b>、休憩に入るときは<b>休憩開始</b>、戻ったら<b>休憩終了</b>、帰るときは<b>退勤</b>を押します。押せるボタンだけが濃い色になっています。</li>
+        <li>画面の下に「出勤 9:03　計上 9:15」のように出たら完了です。</li>
+      </ol>
+      <p class="note">名前の左の線の色で状態がわかります（緑＝勤務中、黄＝休憩中、灰色＝未出勤）。休憩は1日に何回でも入れられます。</p>
+    </div>
+    <div class="panel">
+      <h3>15分単位の計算のしかた</h3>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th></th><th>そろえ方</th><th>例</th></tr></thead>
+        <tbody>
+          <tr><td>出勤</td><td>切り上げ</td><td class="num">9:03に押す → 9:15から計算</td></tr>
+          <tr><td>退勤</td><td>切り捨て</td><td class="num">18:10に押す → 18:00まで計算</td></tr>
+          <tr><td>休憩</td><td>近い方の15分</td><td class="num">52分休憩 → 45分として計算</td></tr>
+        </tbody></table></div>
+      <p class="note">押した時刻はそのまま保存され、集計のときにそろえます。</p>
+    </div>
+    <div class="panel">
+      <h3>月末の集計とCSV</h3>
+      <ol>
+        <li><b>「月次集計」</b>タブで、スタッフごとの出勤日数・実働時間・休憩時間を確認できます。◀ ▶ で月を切り替えます。</li>
+        <li>「未退勤」と赤く出ている人は、退勤の押し忘れです。</li>
+        <li>「明細CSVを保存」（日ごと）または「合計CSVを保存」（月の合計）で、Excelで開けるファイルになります。</li>
+      </ol>
+    </div>
+    <div class="panel">
+      <h3>押し忘れ・押し間違いを直すとき</h3>
+      <ol>
+        <li>「月次集計」でスタッフの行を押すと、日ごとの明細が出ます。</li>
+        <li>直したい日の行を押し、時刻を直します。打刻そのものを忘れた日は「記録を手で追加」から入れます。</li>
+        <li><b>「修正した人」</b>（必須）と理由を入れて「保存」を押します。</li>
+      </ol>
+      <p class="note">直した記録には「修正あり」の印が付き、月次集計の一番下の「修正履歴」に、いつ・誰が・どう直したかが残ります。履歴は消せません。</p>
+    </div>
+    <div class="panel">
+      <h3>修正を店長さんだけにしたいとき</h3>
+      <p class="note" style="margin:0">「設定」タブの「店長の暗証番号」に4〜8桁の数字を入れて保存すると、記録の修正・追加・削除、スタッフ登録、設定画面を開くときに番号が必要になります。打刻は今までどおり名前を押すだけです。</p>
+    </div>
+    <div class="panel" style="background:var(--out-soft)">
+      <h3>大切なお知らせ</h3>
+      <ul>
+        <li>記録はGoogleスプレッドシートに保存されます。どのお店のiPadで打刻しても、同じ人の記録として1つにまとまります。</li>
+        <li>打刻にはインターネット（Wi-Fi）が必要です。つながらないときは「記録できませんでした」と出るので、つながってからもう一度押してください。</li>
+        <li>打刻の時刻は、iPadの時計ではなくサーバーの時刻で記録されます。</li>
+        <li>このページのアドレスを知っている人は打刻できます。アドレスはお店の外に広めないでください。</li>
+      </ul>
+    </div>
+  </section>
+</div>
+
+<div class="sheet-back" id="sheetBack" hidden></div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(() => {
+  const DEFAULT_SETTINGS = { unit: 15, inMode: 'ceil', outMode: 'floor', breakMode: 'round' };
+  const MODE_JA = { ceil: '切り上げ', floor: '切り捨て', round: '近い方', none: '丸めなし' };
+  const WD = ['日','月','火','水','木','金','土'];
+  const DEVICE_KEY = 'kintai.deviceStore';
+  const run = (fn, ...args) => new Promise((res, rej) =>
+    google.script.run.withSuccessHandler(res).withFailureHandler(rej)[fn](...args));
+  const errMsg = e => (e && e.message ? e.message : String(e)).replace(/^Exception: |^Error: /, '');
+  const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  const pad = n => String(n).padStart(2, '0');
+  const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const hm = d => `${d.getHours()}:${pad(d.getMinutes())}`;
+  const fmtMin = m => `${Math.floor(m / 60)}:${pad(Math.round(m % 60))}`;
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  // ---------- rounding ----------
+  function roundDate(iso, mode, unit) {
+    const d = new Date(iso); d.setSeconds(0, 0);
+    if (mode === 'none' || unit <= 1) return d;
+    const base = new Date(d); base.setHours(0, 0, 0, 0);
+    const m = (d - base) / 60000;
+    const f = mode === 'ceil' ? Math.ceil : mode === 'floor' ? Math.floor : Math.round;
+    return new Date(base.getTime() + f(m / unit) * unit * 60000);
+  }
+  function roundLen(min, mode, unit) {
+    if (mode === 'none' || unit <= 1) return min;
+    const f = mode === 'ceil' ? Math.ceil : mode === 'floor' ? Math.floor : Math.round;
+    return f(min / unit) * unit;
+  }
+  function calc(rec) {
+    const s = db.settings, u = +s.unit;
+    const rin = roundDate(rec.in, s.inMode, u);
+    if (!rec.out) return { rin, rout: null, brk: 0, work: null };
+    const rout = roundDate(rec.out, s.outMode, u);
+    let brk = 0;
+    for (const b of rec.breaks || []) {
+      if (!b.end) continue;
+      const raw = Math.max(0, Math.floor((new Date(b.end) - new Date(b.start)) / 60000));
+      brk += roundLen(raw, s.breakMode, u);
+    }
+    const span = Math.max(0, (rout - rin) / 60000);
+    return { rin, rout, brk, work: Math.max(0, span - brk) };
+  }
+
+  // ---------- data（Googleスプレッドシートと同期） ----------
+  let db = { settings: { ...DEFAULT_SETTINGS }, staff: [], records: [], log: [] };
+  let synced = JSON.parse(JSON.stringify(db));
+  let loaded = false, pinValue = '';
+  const norm = r => ({ id: r.id, staffId: r.staffId, store: r.store || '', in: r.in, out: r.out || null, breaks: r.breaks || [] });
+  function setState(st) {
+    db = { settings: { ...DEFAULT_SETTINGS, ...st.settings }, staff: st.staff, records: st.records, log: st.log };
+    synced = JSON.parse(JSON.stringify(db));
+    loaded = true; setConn('');
+    renderAll();
+  }
+  function setConn(msg) { const m = document.getElementById('connMsg'); m.textContent = msg; m.hidden = !msg; }
+  async function refresh() {
+    try { setState(await run('getState')); }
+    catch (e) { setConn('スプレッドシートに接続できません。Wi-Fiを確認してください（' + errMsg(e) + '）'); }
+  }
+  // 画面で変えた内容を、前回の同期との差分としてスプレッドシートへ送る
+  async function save() {
+    const ops = [];
+    const prevR = new Map(synced.records.map(r => [r.id, JSON.stringify(norm(r))]));
+    const prevS = new Map(synced.staff.map(x => [x.id, JSON.stringify(x)]));
+    const goneStaff = new Set([...prevS.keys()].filter(id => !db.staff.some(x => x.id === id)));
+    for (const x of db.staff) if (prevS.get(x.id) !== JSON.stringify(x)) ops.push({ t: 'staff', staff: x });
+    goneStaff.forEach(id => ops.push({ t: 'deleteStaff', id }));
+    for (const r of db.records) {
+      if (r.isNew || r.id === editId) continue;
+      if (prevR.get(r.id) !== JSON.stringify(norm(r))) ops.push({ t: 'record', rec: norm(r) });
+    }
+    for (const r of synced.records)
+      if (!goneStaff.has(r.staffId) && r.id !== editId && !db.records.some(x => x.id === r.id)) ops.push({ t: 'deleteRecord', id: r.id });
+    const logIds = new Set(synced.log.map(l => l.id));
+    for (const l of db.log) if (!logIds.has(l.id)) ops.push({ t: 'log', entry: l });
+    const changed = {};
+    for (const k of ['unit', 'inMode', 'outMode', 'breakMode']) if (db.settings[k] !== synced.settings[k]) changed[k] = db.settings[k];
+    if (Object.keys(changed).length) ops.push({ t: 'settings', settings: changed });
+    if (!ops.length) return;
+    try { setState(await run('apply', ops, pinValue)); }
+    catch (e) { toast('保存できませんでした：' + errMsg(e), ''); refresh(); }
+  }
+
+  const openRec = sid => db.records.filter(r => r.staffId === sid && !r.out).sort((a, b) => b.in.localeCompare(a.in))[0];
+  function status(sid) {
+    const r = openRec(sid);
+    if (!r) return { st: 'off' };
+    const b = (r.breaks || []).find(b => !b.end);
+    return b ? { st: 'break', r, b } : { st: 'work', r };
+  }
+
+  // ---------- clock ----------
+  function tick() {
+    const d = new Date();
+    document.getElementById('now').textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    document.getElementById('today').textContent = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日（${WD[d.getDay()]}）`;
+  }
+  setInterval(tick, 1000); tick();
+
+  function renderRule() {
+    const s = db.settings;
+    document.getElementById('ruleSummary').innerHTML =
+      `<b>${s.unit}分単位</b>で集計<br>出勤 ${MODE_JA[s.inMode]}・退勤 ${MODE_JA[s.outMode]}・休憩 ${s.breakMode === 'none' ? '実時間' : MODE_JA[s.breakMode]}`;
+  }
+
+  // ---------- punch ----------
+  const storesOf = s => (s.store || '').split(/[、,，]/).map(x => x.trim()).filter(Boolean);
+  function deviceStore() { try { return localStorage.getItem(DEVICE_KEY) || ''; } catch (e) { return ''; } }
+  function renderStoreSelect() {
+    const sel = document.getElementById('deviceStore'), cur = deviceStore();
+    const all = [...new Set(db.staff.flatMap(storesOf))];
+    if (cur && !all.includes(cur)) all.push(cur);
+    sel.innerHTML = `<option value="">すべて</option>` + all.map(x => `<option value="${esc(x)}">${esc(x)}</option>`).join('');
+    sel.value = cur;
+  }
+  document.getElementById('deviceStore').addEventListener('change', e => {
+    try { localStorage.setItem(DEVICE_KEY, e.target.value); } catch (err) {}
+    renderPunch();
+  });
+  function renderPunch() {
+    renderStoreSelect();
+    const g = document.getElementById('staffGrid');
+    if (!loaded) { g.innerHTML = '<p class="note">読み込み中です…</p>'; return; }
+    const ds = deviceStore();
+    const list = db.staff.filter(s => !ds || storesOf(s).includes(ds) || status(s.id).st !== 'off');
+    if (!list.length) { g.innerHTML = '<p class="note">「スタッフ」タブから名前を登録してください。</p>'; return; }
+    g.innerHTML = list.map(s => {
+      const { st, r, b } = status(s.id);
+      const label = st === 'work' ? '勤務中' : st === 'break' ? '休憩中' : '未出勤';
+      const since = st === 'work' ? `${hm(new Date(r.in))} に出勤` : st === 'break' ? `${hm(new Date(b.start))} から休憩` : (s.store ? esc(s.store) : '');
+      return `<button class="staff-card" data-sid="${s.id}" data-st="${st}">
+        <span class="name">${esc(s.name)}</span>
+        <span class="pill ${st}">${label}</span>
+        <span class="since num">${since}</span></button>`;
+    }).join('');
+  }
+  document.getElementById('staffGrid').addEventListener('click', e => {
+    const c = e.target.closest('.staff-card'); if (c) openSheet(c.dataset.sid);
+  });
+
+  const back = document.getElementById('sheetBack');
+  function closeSheet() { back.hidden = true; back.innerHTML = ''; }
+  back.addEventListener('click', e => { if (e.target === back) closeSheet(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
+
+  function openSheet(sid) {
+    const s = db.staff.find(x => x.id === sid), { st } = status(sid);
+    back.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(s.name)}の打刻">
+      <h2>${esc(s.name)}</h2>
+      <div class="now">いま ${hm(new Date())}</div>
+      <div class="acts">
+        <button class="act in" data-a="in" ${st !== 'off' ? 'disabled' : ''}>出勤</button>
+        <button class="act out" data-a="out" ${st === 'off' ? 'disabled' : ''}>退勤</button>
+        <button class="act bs" data-a="bs" ${st !== 'work' ? 'disabled' : ''}>休憩開始</button>
+        <button class="act be" data-a="be" ${st !== 'break' ? 'disabled' : ''}>休憩終了</button>
+      </div>
+      <button class="btn" data-a="close">閉じる</button></div>`;
+    back.hidden = false;
+    back.querySelector('.act:not(:disabled)')?.focus();
+    back.querySelector('.sheet').addEventListener('click', e => {
+      const a = e.target.closest('[data-a]')?.dataset.a; if (!a) return;
+      if (a !== 'close') punch(sid, a);
+      closeSheet();
+    });
+  }
+
+  let punching = false;
+  async function punch(sid, a) {
+    if (punching) return;
+    const s = db.staff.find(x => x.id === sid);
+    const label = { in: '出勤', bs: '休憩開始', be: '休憩終了', out: '退勤' }[a];
+    punching = true; toast(`${s.name}さん ${label}を記録しています…`, '');
+    try {
+      const res = await run('punch', sid, a, deviceStore());
+      setState(res.state);
+      const at = new Date(res.result.at), u = +db.settings.unit;
+      let stamp = '';
+      if (a === 'in') stamp = `計上 ${hm(roundDate(res.result.at, db.settings.inMode, u))}`;
+      if (a === 'out') { const r = db.records.find(x => x.id === res.result.recId); if (r) stamp = `本日 ${fmtMin(calc(r).work)}`; }
+      toast(`${s.name}さん ${label} ${hm(at)}${a === 'out' ? '　おつかれさまでした' : ''}`, stamp);
+    } catch (e) {
+      toast(`記録できませんでした：${errMsg(e)}。画面を最新にしたので、確認してもう一度押してください`, '');
+      refresh();
+    } finally { punching = false; }
+  }
+
+  let toastTimer;
+  function toast(msg, stamp) {
+    const t = document.getElementById('toast');
+    t.innerHTML = `<span>${esc(msg)}</span>${stamp ? `<span class="stamp">${esc(stamp)}</span>` : ''}`;
+    t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 3500);
+  }
+
+  // ---------- month ----------
+  const nowD = new Date();
+  let ym = { y: nowD.getFullYear(), m: nowD.getMonth() };
+  let selStaff = null, editId = null;
+  const inMonth = r => { const d = new Date(r.in); return d.getFullYear() === ym.y && d.getMonth() === ym.m; };
+  const monthRecs = sid => db.records.filter(r => r.staffId === sid && inMonth(r)).sort((a, b) => a.in.localeCompare(b.in));
+
+  function summary(sid) {
+    let days = new Set(), work = 0, brk = 0, open = 0;
+    for (const r of monthRecs(sid)) {
+      days.add(ymd(new Date(r.in)));
+      const c = calc(r);
+      if (c.work == null) { open++; continue; }
+      work += c.work; brk += c.brk;
+    }
+    return { days: days.size, work, brk, open };
+  }
+
+  function renderMonth() {
+    document.getElementById('monthLabel').textContent = `${ym.y}年${ym.m + 1}月`;
+    const rows = db.staff.map(s => {
+      const x = summary(s.id);
+      return `<tr class="click ${selStaff === s.id ? 'sel' : ''}" data-sid="${s.id}">
+        <td>${esc(s.name)}</td><td>${esc(s.store || '')}</td>
+        <td class="r num">${x.days}</td><td class="r num">${fmtMin(x.work)}</td>
+        <td class="r num">${(x.work / 60).toFixed(2)}</td><td class="r num">${fmtMin(x.brk)}</td>
+        <td>${x.open ? `<span class="warn">未退勤 ${x.open}件</span>` : ''}</td></tr>`;
+    }).join('');
+    document.getElementById('sumTable').innerHTML =
+      `<thead><tr><th>スタッフ</th><th>店舗</th><th class="r">出勤日数</th><th class="r">実働</th><th class="r">時間(10進)</th><th class="r">休憩</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="7" class="note">スタッフが登録されていません</td></tr>'}</tbody>`;
+    renderDetail();
+    renderLog();
+  }
+  document.getElementById('sumTable').addEventListener('click', e => {
+    const tr = e.target.closest('tr[data-sid]'); if (!tr) return;
+    selStaff = selStaff === tr.dataset.sid ? null : tr.dataset.sid; editId = null; renderMonth();
+  });
+  document.getElementById('prevM').onclick = () => { ym.m--; if (ym.m < 0) { ym.m = 11; ym.y--; } editId = null; renderMonth(); };
+  document.getElementById('nextM').onclick = () => { ym.m++; if (ym.m > 11) { ym.m = 0; ym.y++; } editId = null; renderMonth(); };
+
+  const tval = iso => { const d = new Date(iso); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+  function renderDetail() {
+    const p = document.getElementById('detailPanel');
+    const s = db.staff.find(x => x.id === selStaff);
+    if (!s) { p.hidden = true; p.innerHTML = ''; return; }
+    p.hidden = false;
+    const recs = monthRecs(s.id);
+    const rows = recs.map(r => {
+      const c = calc(r), d = new Date(r.in);
+      const braw = (r.breaks || []).map(b => `${hm(new Date(b.start))}–${b.end ? hm(new Date(b.end)) : '…'}`).join(', ');
+      return `<tr class="click ${editId === r.id ? 'sel' : ''}" data-rid="${r.id}">
+        <td class="num">${d.getMonth() + 1}/${d.getDate()}（${WD[d.getDay()]}）${edited(r.id) ? '<span class="pill edit">修正あり</span>' : ''}</td>
+        <td class="num">${hm(c.rin)} <div class="raw">打刻 ${hm(d)}</div></td>
+        <td class="num">${r.out ? `${hm(c.rout)} <div class="raw">打刻 ${hm(new Date(r.out))}</div>` : '<span class="warn">未退勤</span>'}</td>
+        <td class="num">${r.out ? fmtMin(c.brk) : ''} <div class="raw">${braw}</div></td>
+        <td class="r num"><b>${c.work == null ? '' : fmtMin(c.work)}</b></td></tr>`;
+    }).join('');
+    p.innerHTML = `<div class="row" style="justify-content:space-between"><h3>${esc(s.name)}さんの明細</h3>
+      <button class="btn" id="addRec">記録を手で追加</button></div>
+      <div class="tbl-wrap"><table><thead><tr><th>日付</th><th>出勤（計上）</th><th>退勤（計上）</th><th>休憩</th><th class="r">実働</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="5" class="note">この月の記録はありません</td></tr>'}</tbody></table></div>
+      <p class="note" style="margin:0">行を押すと修正できます（打ち忘れ・押し間違いの訂正用）。</p>
+      <div id="editor"></div>`;
+    p.querySelector('tbody').addEventListener('click', e => {
+      const tr = e.target.closest('tr[data-rid]'); if (!tr) return;
+      const rid = tr.dataset.rid;
+      requirePin(() => { editId = editId === rid ? null : rid; renderDetail(); });
+    });
+    p.querySelector('#addRec').onclick = () => requirePin(() => {
+      const base = new Date(ym.y, ym.m, Math.min(new Date().getDate(), new Date(ym.y, ym.m + 1, 0).getDate()), 9, 0);
+      const r = { id: uid(), staffId: s.id, in: base.toISOString(), out: new Date(base.getTime() + 8 * 3600000).toISOString(), breaks: [] };
+      r.isNew = true; db.records.push(r); editId = r.id; renderMonth();
+    });
+    const er = editId && recs.find(r => r.id === editId);
+    if (er && editSnap?.id !== er.id) { editSnap = JSON.parse(JSON.stringify(er)); editBy = ''; editReason = ''; }
+    if (er) renderEditor(er);
+  }
+
+  // ---------- edit history ----------
+  let editSnap = null, editBy = '', editReason = '';
+  const edited = rid => db.log.some(l => l.recId === rid);
+  function recText(r) {
+    if (!r) return '';
+    const br = (r.breaks || []).map(b => `${hm(new Date(b.start))}-${b.end ? hm(new Date(b.end)) : '…'}`).join(' ');
+    return `出勤 ${hm(new Date(r.in))} / 退勤 ${r.out ? hm(new Date(r.out)) : 'なし'}${br ? ` / 休憩 ${br}` : ''}`;
+  }
+  function addLog(action, r, before, after) {
+    const st = db.staff.find(x => x.id === r.staffId);
+    db.log.push({ id: uid(), at: new Date().toISOString(), staffId: r.staffId, staffName: st ? st.name : '', recId: r.id,
+      workDate: ymd(new Date((after || before).in)), action, before: recText(before), after: recText(after), by: editBy, reason: editReason });
+  }
+  const fmtAt = iso => { const d = new Date(iso); return `${d.getMonth() + 1}/${d.getDate()} ${hm(d)}`; };
+  const monthLog = () => db.log.filter(l => { const [y, m] = l.workDate.split('-').map(Number); return y === ym.y && m === ym.m + 1; })
+    .sort((a, b) => b.at.localeCompare(a.at));
+  function renderLog() {
+    const rows = monthLog().map(l => `<tr><td class="num">${fmtAt(l.at)}</td><td>${esc(l.staffName)}</td><td class="num">${l.workDate.slice(5).replace('-', '/')}</td>
+      <td><span class="pill ${l.action === '削除' ? 'edit' : 'off'}">${l.action}</span></td><td class="num wr">${esc(l.before) || '—'}</td><td class="num wr">${esc(l.after) || '—'}</td>
+      <td>${esc(l.by)}</td><td class="wr">${esc(l.reason)}</td></tr>`).join('');
+    document.getElementById('logTable').innerHTML = `<thead><tr><th>修正した日時</th><th>スタッフ</th><th>勤務日</th><th>内容</th><th>修正前</th><th>修正後</th><th>修正した人</th><th>理由</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="8" class="note">この月の修正はありません</td></tr>'}</tbody>`;
+  }
+  function logCSV() {
+    const lines = [['修正した日時', 'スタッフ', '勤務日', '内容', '修正前', '修正後', '修正した人', '理由']];
+    for (const l of monthLog()) { const d = new Date(l.at); lines.push([`${ymd(d)} ${hm(d)}`, l.staffName, l.workDate, l.action, l.before, l.after, l.by, l.reason]); }
+    return lines.map(l => l.map(q).join(',')).join('\r\n');
+  }
+
+  function renderEditor(r) {
+    if (!r) return;
+    const box = document.getElementById('editor');
+    const d = new Date(r.in);
+    box.innerHTML = `<div class="panel" style="background:var(--bg)">
+      <h3>${r.isNew ? '記録を追加' : '記録を修正'}</h3>
+      <div class="fields">
+        <label class="field">日付<input type="date" id="e-date" value="${ymd(d)}"></label>
+        <label class="field">出勤<input type="time" id="e-in" value="${tval(r.in)}"></label>
+        <label class="field">退勤<input type="time" id="e-out" value="${r.out ? tval(r.out) : ''}"></label>
+      </div>
+      <div id="e-breaks" style="display:grid;gap:8px">${(r.breaks || []).map((b, i) => `
+        <div class="edit-break" data-i="${i}">
+          <label class="field">休憩${i + 1} 開始<input type="time" class="bs" value="${tval(b.start)}"></label>
+          <label class="field">終了<input type="time" class="be" value="${b.end ? tval(b.end) : ''}"></label>
+          <button class="btn" data-del="${i}">この休憩を消す</button></div>`).join('')}</div>
+      <div class="fields">
+        <label class="field">修正した人（必須）<input id="e-by" list="e-names" value="${esc(editBy)}" placeholder="例：店長 山本"></label>
+        <label class="field">理由<input id="e-reason" value="${esc(editReason)}" placeholder="例：退勤の押し忘れ"></label>
+        <datalist id="e-names">${db.staff.map(s => `<option value="${esc(s.name)}">`).join('')}</datalist>
+      </div>
+      ${(() => { const h = db.log.filter(l => l.recId === r.id); return h.length ? `<div class="note">この記録の修正履歴：${h.map(l => `${fmtAt(l.at)} ${esc(l.by)}が${l.action}`).join('、')}</div>` : ''; })()}
+      <div class="row">
+        <button class="btn" id="e-addb">休憩を追加</button>
+        <button class="btn primary" id="e-save">保存</button>
+        <button class="btn" id="e-cancel">やめる</button>
+        <button class="btn danger" id="e-del">この記録を削除</button>
+      </div>
+      <p class="note" style="margin:0">退勤が出勤より早い時刻なら、翌日の退勤として扱います。</p></div>`;
+    const keepWho = () => { editBy = box.querySelector('#e-by').value.trim(); editReason = box.querySelector('#e-reason').value.trim(); };
+    const collect = () => {
+      keepWho();
+      const date = box.querySelector('#e-date').value; if (!date) return null;
+      const [Y, M, D] = date.split('-').map(Number);
+      const at = (t, ref) => { if (!t) return null; const [h, m] = t.split(':').map(Number); let x = new Date(Y, M - 1, D, h, m); if (ref && x < ref) x = new Date(x.getTime() + 86400000); return x; };
+      const tin = at(box.querySelector('#e-in').value); if (!tin) return null;
+      const tout = at(box.querySelector('#e-out').value, tin);
+      const breaks = [...box.querySelectorAll('.edit-break')].map(el => {
+        const bs = at(el.querySelector('.bs').value, tin); const be = bs ? at(el.querySelector('.be').value, bs) : null;
+        return bs ? { start: bs.toISOString(), end: be ? be.toISOString() : null } : null;
+      }).filter(Boolean);
+      return { in: tin.toISOString(), out: tout ? tout.toISOString() : null, breaks };
+    };
+    box.querySelector('#e-addb').onclick = () => {
+      const v = collect(); if (v) Object.assign(r, v);
+      const st = new Date(new Date(r.in).getTime() + 3 * 3600000);
+      r.breaks.push({ start: st.toISOString(), end: new Date(st.getTime() + 45 * 60000).toISOString() });
+      renderEditor(r);
+    };
+    box.querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
+      const v = collect(); if (v) Object.assign(r, v);
+      r.breaks.splice(+b.dataset.del, 1); renderEditor(r);
+    });
+    box.querySelector('#e-save').onclick = () => {
+      const v = collect(); if (!v) { toast('日付と出勤時刻を入れてください', ''); return; }
+      if (!editBy) { toast('「修正した人」を入れてください', ''); box.querySelector('#e-by').focus(); return; }
+      const before = r.isNew ? null : editSnap;
+      Object.assign(r, v);
+      if (!r.isNew && recText(before) === recText(r)) { editId = null; editSnap = null; renderAll(); toast('変更はありませんでした', ''); return; }
+      addLog(r.isNew ? '追加' : '修正', r, before, r); delete r.isNew;
+      editId = null; editSnap = null; save(); renderAll(); toast('記録を保存し、修正履歴に残しました', '');
+    };
+    box.querySelector('#e-cancel').onclick = () => {
+      if (r.isNew) db.records = db.records.filter(x => x.id !== r.id);
+      else if (editSnap) { Object.keys(r).forEach(k => delete r[k]); Object.assign(r, editSnap); }
+      editId = null; editSnap = null; renderAll();
+    };
+    const del = box.querySelector('#e-del');
+    del.onclick = () => {
+      if (!del.classList.contains('armed')) { del.classList.add('armed'); del.textContent = 'もう一度押すと削除'; return; }
+      keepWho();
+      if (!r.isNew && !editBy) { toast('「修正した人」を入れてください', ''); box.querySelector('#e-by').focus(); return; }
+      if (!r.isNew) addLog('削除', r, editSnap, null);
+      db.records = db.records.filter(x => x.id !== r.id); editId = null; editSnap = null; save(); renderAll(); toast('記録を削除しました', '');
+    };
+  }
+
+  // ---------- CSV ----------
+  const q = v => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v);
+  function detailCSV() {
+    const s = db.settings;
+    const lines = [['スタッフ', '店舗', '打刻した店舗', '日付', '出勤打刻', '退勤打刻', '出勤計上', '退勤計上', '休憩(分)', '実働(分)', '実働(時:分)', '実働(時間)', '修正', `丸め:${s.unit}分/出勤${MODE_JA[s.inMode]}/退勤${MODE_JA[s.outMode]}`]];
+    for (const st of db.staff) for (const r of monthRecs(st.id)) {
+      const c = calc(r);
+      lines.push([st.name, st.store || '', r.store || '', ymd(new Date(r.in)), hm(new Date(r.in)), r.out ? hm(new Date(r.out)) : '未退勤',
+        hm(c.rin), c.rout ? hm(c.rout) : '', r.out ? c.brk : '', c.work ?? '', c.work == null ? '' : fmtMin(c.work), c.work == null ? '' : (c.work / 60).toFixed(2), edited(r.id) ? 'あり' : '', '']);
+    }
+    return lines.map(l => l.map(q).join(',')).join('\r\n');
+  }
+  function sumCSV() {
+    const lines = [['スタッフ', '店舗', '出勤日数', '実働(分)', '実働(時:分)', '実働(時間)', '休憩(分)', '未退勤']];
+    for (const st of db.staff) { const x = summary(st.id); lines.push([st.name, st.store || '', x.days, x.work, fmtMin(x.work), (x.work / 60).toFixed(2), x.brk, x.open]); }
+    return lines.map(l => l.map(q).join(',')).join('\r\n');
+  }
+  async function download(name, text) {
+    showCSV(text);
+    try {
+      const blob = new Blob(['﻿' + text], { type: 'text/csv' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+    } catch (e) {}
+  }
+  function showCSV(text) { const t = document.getElementById('csvOut'); t.value = text; t.hidden = false; }
+  const fname = k => `勤怠_${k}_${ym.y}-${pad(ym.m + 1)}.csv`;
+  document.getElementById('dlDetail').onclick = () => download(fname('明細'), detailCSV());
+  document.getElementById('dlLog').onclick = () => download(fname('修正履歴'), logCSV());
+  document.getElementById('dlSum').onclick = () => download(fname('合計'), sumCSV());
+  document.getElementById('cpDetail').onclick = () => {
+    const text = detailCSV(); showCSV(text);
+    navigator.clipboard?.writeText(text).then(() => toast('明細CSVをコピーしました', ''), () => { const t = document.getElementById('csvOut'); t.focus(); t.select(); toast('下の枠を長押ししてコピーしてください', ''); })
+      ?? (document.getElementById('csvOut').select());
+  };
+
+  // ---------- staff ----------
+  function renderStaff() {
+    document.getElementById('staffTable').innerHTML = `<thead><tr><th>名前</th><th>店舗</th><th></th></tr></thead><tbody>${
+      db.staff.map(s => `<tr><td>${esc(s.name)}</td><td>${esc(s.store || '')}</td><td class="r"><button class="btn danger" data-rm="${s.id}">削除</button></td></tr>`).join('')
+      || '<tr><td colspan="3" class="note">まだ登録がありません</td></tr>'}</tbody>`;
+  }
+  document.getElementById('staffTable').addEventListener('click', e => {
+    const b = e.target.closest('[data-rm]'); if (!b) return;
+    if (!b.classList.contains('armed')) { b.classList.add('armed'); b.textContent = 'もう一度押すと削除（記録はシートに残ります）'; return; }
+    db.staff = db.staff.filter(s => s.id !== b.dataset.rm);
+    save(); renderAll();
+  });
+  document.getElementById('addStaff').addEventListener('submit', e => {
+    e.preventDefault();
+    const n = document.getElementById('newName'), st = document.getElementById('newStore');
+    if (!n.value.trim()) return;
+    db.staff.push({ id: uid(), name: n.value.trim(), store: st.value.trim() });
+    n.value = ''; save(); renderAll(); toast('スタッフを追加しました', '');
+  });
+
+  // ---------- settings ----------
+
+  // ---------- tabs ----------
+  // ---------- manager PIN ----------
+  let unlockedAt = 0;
+  const LOCK_MS = 10 * 60000;
+  const isUnlocked = () => !db.settings.hasPin || Date.now() - unlockedAt < LOCK_MS;
+  function lock() { unlockedAt = 0; pinValue = ''; }
+  function requirePin(then) {
+    if (isUnlocked()) { if (db.settings.hasPin) unlockedAt = Date.now(); then(); return; }
+    back.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-label="店長の暗証番号">
+      <h2>店長の暗証番号</h2>
+      <p class="note" style="margin:0">この操作は店長だけができます。</p>
+      <form id="pinAsk" style="display:grid;gap:12px">
+        <input id="pinIn" type="password" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="暗証番号" style="font-size:28px;letter-spacing:.3em;text-align:center;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--panel)">
+        <div class="row"><button class="btn primary" type="submit">開く</button><button class="btn" type="button" id="pinCancel">やめる</button></div>
+        <p class="warn" id="pinErr" hidden style="margin:0">番号が違います</p>
+      </form></div>`;
+    back.hidden = false;
+    const inp = back.querySelector('#pinIn'); inp.focus();
+    back.querySelector('#pinCancel').onclick = closeSheet;
+    back.querySelector('#pinAsk').addEventListener('submit', async e => {
+      e.preventDefault();
+      const v = inp.value;
+      let ok = false;
+      try { ok = await run('checkPin', v); } catch (err) { toast('確認できませんでした：' + errMsg(err), ''); return; }
+      if (ok) { pinValue = v; unlockedAt = Date.now(); closeSheet(); then(); }
+      else { back.querySelector('#pinErr').hidden = false; inp.value = ''; inp.focus(); }
+    });
+  }
+  function renderPinState() {
+    document.getElementById('pinState').textContent = db.settings.hasPin ? '番号を設定済みです' : 'いまは番号なしです';
+  }
+  document.getElementById('pinForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const v = document.getElementById('pinNew').value.trim();
+    if (v && !/^\d{4,8}$/.test(v)) { toast('4〜8桁の数字で入れてください', ''); return; }
+    document.getElementById('pinNew').value = '';
+    run('apply', [{ t: 'settings', settings: { pin: v } }], pinValue).then(st => {
+      pinValue = v; if (v) unlockedAt = Date.now();
+      setState(st); toast(v ? '暗証番号を設定しました' : '暗証番号をなしにしました', '');
+    }, err => toast('保存できませんでした：' + errMsg(err), ''));
+  });
+
+  // ---------- tabs ----------
+  function showTab(name) {
+    document.querySelectorAll('nav.tabs button').forEach(x => x.setAttribute('aria-selected', x.dataset.tab === name));
+    document.querySelectorAll('.tabpanel').forEach(p => p.hidden = p.id !== 'tab-' + name);
+    renderAll();
+  }
+  document.querySelector('nav.tabs').addEventListener('click', e => {
+    const b = e.target.closest('[data-tab]'); if (!b) return;
+    const name = b.dataset.tab;
+    if (name === 'punch') { lock(); editId = null; selStaff = null; showTab(name); return; }
+    if (name === 'staff' || name === 'settings') requirePin(() => showTab(name));
+    else showTab(name);
+  });
+  setInterval(() => {
+    if (db.settings.hasPin && unlockedAt && !isUnlocked()) { lock(); editId = null; showTab('punch'); }
+  }, 30000);
+
+  function renderAll() { renderPinState(); renderRule(); renderPunch(); renderMonth(); renderStaff(); }
+  renderAll();
+  refresh();
+  setInterval(() => { if (!editId && back.hidden && !punching) refresh(); }, 60000);
+})();
+</script>
+</body></html>
